@@ -1,0 +1,73 @@
+name: Test appimagetool update
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ci-test-appimagetool-0.5.4]
+
+env:
+  QUICK_SHARUN_URL: https://raw.githubusercontent.com/${{ github.repository }}/refs/heads/update-appimagetool-0.5.4/useful-tools/quick-sharun.sh
+
+jobs:
+  galculator:
+    name: Galculator (${{ matrix.arch }})
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runs-on: ubuntu-24.04, platform: linux/amd64 }
+          - { arch: aarch64, runs-on: ubuntu-24.04-arm, platform: linux/arm64 }
+          - { arch: riscv64, runs-on: ubuntu-24.04, platform: linux/riscv64 }
+          - { arch: loongarch64, runs-on: ubuntu-24.04, platform: linux/loong64 }
+          - { arch: ppc64le, runs-on: ubuntu-24.04, platform: linux/ppc64le }
+          - { arch: ppc64, runs-on: ubuntu-24.04, platform: linux/ppc64 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pkgforge-dev/Galculator-AppImage
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pkgforge-dev/anylinux-setup-action
+          ref: ba7321e11074f9e387a0634e653d09b115d576cd
+          path: setup-action
+      - name: Register QEMU binfmt handlers
+        run: sh setup-action/emulated/register-binfmt.sh
+      - name: Build with quick-sharun from the PR branch
+        run: |
+          set -eu
+          docker run --rm --platform "${{ matrix.platform }}" \
+            -e GITHUB_REPOSITORY=pkgforge-dev/Galculator-AppImage \
+            -e QUICK_SHARUN="$QUICK_SHARUN_URL" \
+            -v "$GITHUB_WORKSPACE":/repo -v "$GITHUB_WORKSPACE/setup-action":/setup -w /repo \
+            ghcr.io/pkgforge-dev/archlinux:latest \
+            /bin/sh -euc 'sh /setup/setup.sh; . ./get-dependencies.sh; cd /repo; . ./make-appimage.sh' 2>&1 | tee build.log
+      - name: Check which appimagetool was used
+        run: |
+          grep -a "Downloading appimagetool from" build.log
+          grep -a "appimagetool/releases/download/0.5.4/appimagetool-full-${{ matrix.arch }}-linux" build.log
+          grep -a "checksum verified" build.log
+          grep -a "Test went OK" build.log
+          grep -a " blocks (" build.log
+          ls -la dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: AppImage-${{ matrix.arch }}
+          path: dist
+
+  demo:
+    name: gtk3-demo (${{ matrix.arch }})
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runs-on: ubuntu-24.04 }
+          - { arch: aarch64, runs-on: ubuntu-24.04-arm }
+    container: ghcr.io/pkgforge-dev/archlinux:latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Make AppImage with the demo script pointed at the PR branch
+        run: |
+          sed -i 's#refs/heads/main#refs/heads/update-appimagetool-0.5.4#g' ./useful-tools/demo/gtk3-demo-appimage.sh
+          sh ./useful-tools/demo/gtk3-demo-appimage.sh 2>&1 | tee build.log
+          grep -a "appimagetool/releases/download/0.5.4/" build.log
