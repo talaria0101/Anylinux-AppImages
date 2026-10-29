@@ -31,6 +31,7 @@ jobs:
           ref: ba7321e11074f9e387a0634e653d09b115d576cd
           path: setup-action
       - name: Register QEMU binfmt handlers
+        if: ${{ matrix.arch != 'x86_64' && matrix.arch != 'aarch64' }}
         run: sh setup-action/emulated/register-binfmt.sh
       - name: Build with quick-sharun from the PR branch
         run: |
